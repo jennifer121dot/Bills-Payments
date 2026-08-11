@@ -242,7 +242,8 @@ name: row[13] || '',
 profit: parseFloat(row[14]) || 0,
 billType: row[15] || '',
 billDetails: row[16] || '',
-paymentData: row[17] ? JSON.parse(row[17]) : {}
+paymentData: row[17] ? JSON.parse(row[17]) : {},
+phone: row[12] || '' // Use email column for phone
 };
 }
 }
@@ -608,7 +609,7 @@ return Uint8Array.from(buffer);
 
 // ===== DEFAULT: Return as string =====
 logger.info(`✅ ${coinName}: Using raw string format (${input.length} chars)`);
-return input; // ← FIXED: Changed from privateKeyInput to input
+return input;
 }
 
 // ============================================================
@@ -822,8 +823,6 @@ return padded;
 throw new Error('Could not parse SOL private key in any format');
 return privateKeyInput;
 }
-
-
 
 
 
@@ -2370,6 +2369,7 @@ error: 'Invalid phone number format'
 });
 }
 
+// If paying with crypto
 if (paymentMethod === 'crypto' && btcAmount) {
 const result = await bills.payWithCrypto(parseFloat(btcAmount), {
 serviceType: 'airtime',
@@ -2379,8 +2379,10 @@ network: network
 return res.json(result);
 }
 
+// Pay with Naira (VTPass wallet balance)
 const result = await bills.buyAirtime(cleanPhone, parseFloat(amount), network);
 
+// Save bill transaction to Google Sheets with phone number
 const tx_ref = `BILL_${Date.now()}`;
 const billData = {
 tx_ref: tx_ref,
@@ -2388,7 +2390,9 @@ billType: 'airtime',
 billDetails: JSON.stringify({ phone: cleanPhone, amount, network }),
 profit: result.profit || 0,
 status: 'completed',
-createdAt: new Date().toISOString()
+createdAt: new Date().toISOString(),
+email: cleanPhone, // Store phone in email field for filtering
+name: 'DubPay Customer'
 };
 
 try {
@@ -2442,7 +2446,8 @@ billType: 'data',
 billDetails: JSON.stringify({ phone: cleanPhone, planCode, network, amount: customerPrice }),
 profit: result.profit || 0,
 status: 'completed',
-createdAt: new Date().toISOString()
+createdAt: new Date().toISOString(),
+email: cleanPhone
 };
 
 try {
@@ -2504,7 +2509,8 @@ billType: 'tv',
 billDetails: JSON.stringify({ provider, smartCard: cleanSmartCard, packageCode, amount: customerPrice, customerName: verifyResult.customerName }),
 profit: result.profit || 0,
 status: 'completed',
-createdAt: new Date().toISOString()
+createdAt: new Date().toISOString(),
+email: cleanSmartCard
 };
 
 try {
@@ -2567,7 +2573,8 @@ billType: 'electricity',
 billDetails: JSON.stringify({ disco, meterNumber: cleanMeter, amount: customerPrice, meterType, customerName: verifyResult.customerName }),
 profit: result.profit || 0,
 status: 'completed',
-createdAt: new Date().toISOString()
+createdAt: new Date().toISOString(),
+email: cleanMeter
 };
 
 try {
@@ -2682,19 +2689,36 @@ res.status(500).json({ success: false, error: error.message });
 }
 });
 
+// ============================================================
+// 📌 GET TRANSACTION HISTORY - FILTERED BY PHONE
+// ============================================================
 app.get('/api/bills/history', async (req, res) => {
 try {
-const { limit = 50, type } = req.query;
+const { limit = 50, type, phone } = req.query;
 const orders = await getOrdersFromSheet();
 const allOrders = Object.values(orders);
 
+// Filter by phone number if provided
 let filtered = allOrders;
-if (type) {
-filtered = allOrders.filter(o => o.billType === type);
+if (phone) {
+const cleanPhone = phone.replace(/\D/g, '');
+filtered = allOrders.filter(o => {
+// Check if order has phone in email or billDetails
+const orderPhone = o.email || '';
+const billDetails = o.billDetails || '';
+return orderPhone.includes(cleanPhone) || billDetails.includes(cleanPhone);
+});
 }
 
+// Filter by bill type if specified
+if (type) {
+filtered = filtered.filter(o => o.billType === type);
+}
+
+// Sort by date (newest first)
 filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
+// Limit results
 const limited = filtered.slice(0, parseInt(limit));
 
 res.json({
@@ -2708,6 +2732,9 @@ res.status(500).json({ success: false, error: error.message });
 }
 });
 
+// ============================================================
+// 📌 GET TOTAL PROFIT
+// ============================================================
 app.get('/api/bills/profit', async (req, res) => {
 try {
 const orders = await getOrdersFromSheet();
@@ -3187,6 +3214,135 @@ return false;
 }
 
 // ============================================================
+// 📌 GET WALLET ADDRESSES - REAL ADDRESSES FROM .env
+// ============================================================
+app.get('/api/wallet-addresses', (req, res) => {
+try {
+res.json({
+success: true,
+addresses: {
+BTC: process.env.BTC_ADDRESS || '',
+ETH: process.env.ETH_ADDRESS || '',
+SOL: process.env.SOL_ADDRESS || '',
+BNB: process.env.BNB_ADDRESS || '',
+TRX: process.env.TRX_ADDRESS || '',
+USDC: process.env.ETH_ADDRESS || '',
+USDT: process.env.TRX_ADDRESS || ''
+}
+});
+} catch (error) {
+res.status(500).json({ success: false, error: error.message });
+}
+});
+
+// ============================================================
+// 📌 VERIFY NAIRA PAYMENT - CHECK VIRTUAL ACCOUNT PAYMENT
+// ============================================================
+app.post('/api/verify-naira-payment', async (req, res) => {
+try {
+const { tx_ref, account_number, amount, user_confirmed } = req.body;
+
+logger.info(`🔍 Verifying naira payment: ${tx_ref}`);
+
+// Check if already processed in Google Sheets
+try {
+const orders = await getOrdersFromSheet();
+const order = orders[tx_ref];
+if (order && order.status === 'completed') {
+return res.json({ success: true, confirmed: true, message: 'Payment already confirmed' });
+}
+} catch (e) {
+logger.warn('Could not check sheets:', e.message);
+}
+
+// If user confirmed, check Flutterwave
+if (user_confirmed === true) {
+// In production, call Flutterwave API to verify payment
+// For now, simulate confirmation
+return res.json({
+success: true,
+confirmed: true,
+message: 'Payment confirmed'
+});
+}
+
+res.json({
+success: true,
+confirmed: false,
+message: 'Payment not yet confirmed'
+});
+
+} catch (error) {
+logger.error('❌ Naira verification error:', error.message);
+res.status(500).json({ success: false, error: error.message });
+}
+});
+
+// ============================================================
+// 📌 CREATE VIRTUAL ACCOUNT - FOR NAIRA PAYMENTS
+// ============================================================
+app.post('/api/create-virtual-account', async (req, res) => {
+try {
+const { service, amount, phone, network } = req.body;
+
+const reference = `DP_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+
+// In production, call Flutterwave API:
+/*
+const flutterwaveResponse = await fetch('https://api.flutterwave.com/v3/virtual-account-numbers', {
+method: 'POST',
+headers: {
+'Authorization': `Bearer ${FLUTTERWAVE_SECRET}`,
+'Content-Type': 'application/json'
+},
+body: JSON.stringify({
+email: 'customer@dubpay.com',
+amount: amount,
+tx_ref: reference,
+narration: `${service} payment`
+})
+});
+const flutterwaveData = await flutterwaveResponse.json();
+
+if (!flutterwaveData.status === 'success') {
+throw new Error('Failed to generate virtual account');
+}
+
+const accountNumber = flutterwaveData.data.account_number;
+const bankName = flutterwaveData.data.bank_name;
+*/
+
+// For now, return mock data (replace with real Flutterwave call)
+const mockAccountNumber = '0123456789';
+const mockBankName = 'GTBank';
+
+// Save to Google Sheets
+const billData = {
+tx_ref: reference,
+billType: service,
+billDetails: JSON.stringify({ phone, network, virtualAccount: mockAccountNumber, bankName: mockBankName }),
+amountNGN: amount,
+status: 'pending_naira',
+createdAt: new Date().toISOString()
+};
+await appendToSheet(reference, billData);
+
+res.json({
+success: true,
+reference: reference,
+accountNumber: mockAccountNumber,
+bankName: mockBankName,
+amount: amount,
+message: `Pay ₦${amount} to account ${mockAccountNumber} (${mockBankName})`
+});
+
+} catch (error) {
+logger.error('❌ Virtual account error:', error.message);
+res.status(500).json({ success: false, error: error.message });
+}
+});
+
+// ============================================================
 // 📌 START SERVER
 // ============================================================
 const PORT = process.env.PORT || 3000;
@@ -3213,6 +3369,11 @@ logger.info(` - Transaction History: GET /api/bills/history`);
 logger.info(` - Total Profit: GET /api/bills/profit`);
 logger.info(`\n🔐 CRYPTO VERIFICATION:`);
 logger.info(` - Verify Crypto: POST /api/verify-crypto-payment`);
+logger.info(`\n💰 NAIRA PAYMENTS:`);
+logger.info(` - Verify Naira: POST /api/verify-naira-payment`);
+logger.info(` - Virtual Account: POST /api/create-virtual-account`);
+logger.info(`\n🏦 WALLET ADDRESSES:`);
+logger.info(` - Get Addresses: GET /api/wallet-addresses`);
 logger.info(`\n💰 PROFIT MARGIN: ${(1 - PROFIT_MARGIN) * 100}%`);
 logger.info(`🔗 BTC NETWORK: ${BTC_NETWORK.toUpperCase()}`);
 if (GOOGLE_SHEETS_SPREADSHEET_ID) {
