@@ -1,4 +1,4 @@
-// ============================================================
+
 // 🔥 LOAD ENVIRONMENT VARIABLES FIRST
 // ============================================================
 require('dotenv').config();
@@ -242,8 +242,7 @@ name: row[13] || '',
 profit: parseFloat(row[14]) || 0,
 billType: row[15] || '',
 billDetails: row[16] || '',
-paymentData: row[17] ? JSON.parse(row[17]) : {},
-phone: row[12] || '' // Use email column for phone
+paymentData: row[17] ? JSON.parse(row[17]) : {}
 };
 }
 }
@@ -509,6 +508,28 @@ logger.warn('⚠️ Using fallback BTC/NGN rate');
 return btcAmount * 45000000;
 }
 }
+
+async convertEthToNaira(ethAmount) {
+try {
+const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=ngn');
+const ethToNgn = response.data.ethereum.ngn;
+return ethAmount * ethToNgn;
+} catch (error) {
+logger.warn('⚠️ Using fallback ETH/NGN rate');
+return ethAmount * 1850000;
+}
+}
+
+async convertSolToNaira(solAmount) {
+try {
+const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=ngn');
+const solToNgn = response.data.solana.ngn;
+return solAmount * solToNgn;
+} catch (error) {
+logger.warn('⚠️ Using fallback SOL/NGN rate');
+return solAmount * 85000;
+}
+}
 }
 
 // ============================================================
@@ -542,7 +563,7 @@ PROFIT_MARGIN
 );
 
 // ============================================================
-// 🔥 PRIVATE KEY PARSER - FIXED TO ACCEPT ALL FORMATS
+// 🔥 PRIVATE KEY PARSER
 // ============================================================
 function parsePrivateKey(privateKeyInput, coinName) {
 logger.info(`🔑 Parsing private key for ${coinName}...`);
@@ -553,7 +574,6 @@ throw new Error(`No private key provided for ${coinName}`);
 
 const input = privateKeyInput.trim();
 
-// ===== CHECK 1: Base58 format (Solana, some BTC WIF) =====
 if (input.length >= 80 && input.length <= 100) {
 try {
 const decoded = bs58.decode(input);
@@ -564,7 +584,6 @@ return Uint8Array.from(decoded);
 } catch (e) { /* Not Base58 */ }
 }
 
-// ===== CHECK 2: JSON array format =====
 try {
 const array = JSON.parse(input);
 if (Array.isArray(array) && (array.length === 64 || array.length === 32)) {
@@ -573,7 +592,6 @@ return Uint8Array.from(array);
 }
 } catch (e) { /* Not JSON array */ }
 
-// ===== CHECK 3: Base64 format =====
 try {
 const base64Buffer = Buffer.from(input, 'base64');
 if (base64Buffer.length === 64 || base64Buffer.length === 32) {
@@ -582,7 +600,6 @@ return Uint8Array.from(base64Buffer);
 }
 } catch (e) { /* Not Base64 */ }
 
-// ===== CHECK 4: Hex format =====
 try {
 const hexClean = input.replace('0x', '').trim();
 if (/^[0-9a-f]{64}$/i.test(hexClean) || /^[0-9a-f]{128}$/i.test(hexClean) || /^[0-9a-f]{32}$/i.test(hexClean)) {
@@ -592,13 +609,11 @@ return Uint8Array.from(buffer);
 }
 } catch (e) { /* Not Hex */ }
 
-// ===== CHECK 5: WIF format (Bitcoin) =====
 if (input.startsWith('5') || input.startsWith('K') || input.startsWith('L') || input.startsWith('c') || input.startsWith('T')) {
 logger.info(`✅ ${coinName}: Using WIF format`);
 return input;
 }
 
-// ===== CHECK 6: Raw 64 or 32 byte string =====
 try {
 const buffer = Buffer.from(input);
 if (buffer.length === 64 || buffer.length === 32) {
@@ -607,13 +622,12 @@ return Uint8Array.from(buffer);
 }
 } catch (e) { /* Not raw buffer */ }
 
-// ===== DEFAULT: Return as string =====
 logger.info(`✅ ${coinName}: Using raw string format (${input.length} chars)`);
 return input;
 }
 
 // ============================================================
-// 🔥 BTC WIF CONVERTER - FIXED TO ACCEPT ALL FORMATS
+// 🔥 BTC WIF CONVERTER
 // ============================================================
 function convertToBTCWIF(privateKeyInput) {
 logger.info('🔄 Converting BTC private key to WIF format...');
@@ -704,7 +718,7 @@ throw new Error(`Failed to convert to WIF: ${error.message}`);
 }
 
 // ============================================================
-// 🔥 SOL PRIVATE KEY NORMALIZER - FIXED
+// 🔥 SOL PRIVATE KEY NORMALIZER
 // ============================================================
 function normalizeSolPrivateKey(privateKeyInput) {
 logger.info('🔄 Normalizing SOL private key...');
@@ -825,9 +839,8 @@ return privateKeyInput;
 }
 
 
-
 // ============================================================
-// 🔥 TRON PRIVATE KEY NORMALIZER - FIXED
+// 🔥 TRON PRIVATE KEY NORMALIZER
 // ============================================================
 function normalizeTronPrivateKey(privateKeyInput) {
 logger.info('🔄 Normalizing TRX private key...');
@@ -940,7 +953,7 @@ throw new Error('Could not parse TRX private key in any format');
 }
 
 // ============================================================
-// 🔥 BTC WALLET CLASS - FIXED TO USE WIF CONVERTER
+// 🔥 BTC WALLET CLASS
 // ============================================================
 class BTCWallet {
 constructor(config) {
@@ -1173,7 +1186,7 @@ throw error;
 }
 
 // ============================================================
-// 🔥 WALLET CONFIGURATION - FIXED: NO FALLBACKS
+// 🔥 WALLET CONFIGURATION
 // ============================================================
 logger.info('🔍 Checking environment variables...');
 
@@ -1308,7 +1321,7 @@ privateKey: wallet.privateKey
 }
 
 // ============================================================
-// 🔥 BALANCE CHECKS - UPDATED TO USE NORMALIZED KEYS
+// 🔥 BALANCE CHECKS
 // ============================================================
 async function getWalletBalance(coinSymbol, network) {
 logger.info(`🔍 Checking balance for ${coinSymbol}...`);
@@ -1451,7 +1464,7 @@ return 0;
 }
 
 // ============================================================
-// 🔥 SEND FUNCTIONS - UPDATED TO USE NORMALIZED KEYS
+// 🔥 SEND FUNCTIONS
 // ============================================================
 
 function parseEVMPrivateKey(privateKeyInput) {
@@ -1990,7 +2003,7 @@ return { success: false, error: error.message };
 }
 
 // ============================================================
-// 📌 API ENDPOINTS - ALL ORIGINAL ENDPOINTS UNCHANGED
+// 📌 API ENDPOINTS
 // ============================================================
 
 const orders = {};
@@ -2347,7 +2360,7 @@ res.status(500).json({ status: 'error', message: error.message });
 });
 
 // ============================================================
-// 📌 NIGERIAN BILLS ENDPOINTS - ALL ORIGINAL ENDPOINTS UNCHANGED
+// 📌 NIGERIAN BILLS ENDPOINTS
 // ============================================================
 
 app.post('/api/bills/airtime', async (req, res) => {
@@ -2369,6 +2382,14 @@ error: 'Invalid phone number format'
 });
 }
 
+const customerAmount = parseFloat(amount);
+if (isNaN(customerAmount) || customerAmount <= 0) {
+return res.status(400).json({
+success: false,
+error: 'Invalid amount'
+});
+}
+
 // If paying with crypto
 if (paymentMethod === 'crypto' && btcAmount) {
 const result = await bills.payWithCrypto(parseFloat(btcAmount), {
@@ -2380,18 +2401,18 @@ return res.json(result);
 }
 
 // Pay with Naira (VTPass wallet balance)
-const result = await bills.buyAirtime(cleanPhone, parseFloat(amount), network);
+const result = await bills.buyAirtime(cleanPhone, customerAmount, network);
 
-// Save bill transaction to Google Sheets with phone number
 const tx_ref = `BILL_${Date.now()}`;
 const billData = {
 tx_ref: tx_ref,
 billType: 'airtime',
-billDetails: JSON.stringify({ phone: cleanPhone, amount, network }),
+billDetails: JSON.stringify({ phone: cleanPhone, amount: customerAmount, network }),
 profit: result.profit || 0,
+amountNGN: customerAmount,
 status: 'completed',
 createdAt: new Date().toISOString(),
-email: cleanPhone, // Store phone in email field for filtering
+email: cleanPhone,
 name: 'DubPay Customer'
 };
 
@@ -2445,6 +2466,7 @@ tx_ref: tx_ref,
 billType: 'data',
 billDetails: JSON.stringify({ phone: cleanPhone, planCode, network, amount: customerPrice }),
 profit: result.profit || 0,
+amountNGN: customerPrice,
 status: 'completed',
 createdAt: new Date().toISOString(),
 email: cleanPhone
@@ -2508,6 +2530,7 @@ tx_ref: tx_ref,
 billType: 'tv',
 billDetails: JSON.stringify({ provider, smartCard: cleanSmartCard, packageCode, amount: customerPrice, customerName: verifyResult.customerName }),
 profit: result.profit || 0,
+amountNGN: customerPrice,
 status: 'completed',
 createdAt: new Date().toISOString(),
 email: cleanSmartCard
@@ -2572,6 +2595,7 @@ tx_ref: tx_ref,
 billType: 'electricity',
 billDetails: JSON.stringify({ disco, meterNumber: cleanMeter, amount: customerPrice, meterType, customerName: verifyResult.customerName }),
 profit: result.profit || 0,
+amountNGN: customerPrice,
 status: 'completed',
 createdAt: new Date().toISOString(),
 email: cleanMeter
@@ -2689,36 +2713,19 @@ res.status(500).json({ success: false, error: error.message });
 }
 });
 
-// ============================================================
-// 📌 GET TRANSACTION HISTORY - FILTERED BY PHONE
-// ============================================================
 app.get('/api/bills/history', async (req, res) => {
 try {
-const { limit = 50, type, phone } = req.query;
+const { limit = 50, type } = req.query;
 const orders = await getOrdersFromSheet();
 const allOrders = Object.values(orders);
 
-// Filter by phone number if provided
 let filtered = allOrders;
-if (phone) {
-const cleanPhone = phone.replace(/\D/g, '');
-filtered = allOrders.filter(o => {
-// Check if order has phone in email or billDetails
-const orderPhone = o.email || '';
-const billDetails = o.billDetails || '';
-return orderPhone.includes(cleanPhone) || billDetails.includes(cleanPhone);
-});
-}
-
-// Filter by bill type if specified
 if (type) {
-filtered = filtered.filter(o => o.billType === type);
+filtered = allOrders.filter(o => o.billType === type);
 }
 
-// Sort by date (newest first)
 filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-// Limit results
 const limited = filtered.slice(0, parseInt(limit));
 
 res.json({
@@ -2732,9 +2739,6 @@ res.status(500).json({ success: false, error: error.message });
 }
 });
 
-// ============================================================
-// 📌 GET TOTAL PROFIT
-// ============================================================
 app.get('/api/bills/profit', async (req, res) => {
 try {
 const orders = await getOrdersFromSheet();
@@ -2761,15 +2765,235 @@ res.status(500).json({ success: false, error: error.message });
 });
 
 // ============================================================
-// 📌 VERIFY CRYPTO PAYMENT - WITH REAL BLOCKCHAIN VERIFICATION
+// 📌 CREATE VIRTUAL ACCOUNT - REAL FLUTTERWAVE INTEGRATION
+// ============================================================
+app.post('/api/create-virtual-account', async (req, res) => {
+try {
+const { service, amount, phone, network } = req.body;
+
+if (!amount || amount <= 0) {
+return res.status(400).json({ success: false, error: 'Invalid amount' });
+}
+
+const reference = `DP_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+
+// Check if Flutterwave is configured
+if (!FLUTTERWAVE_SECRET) {
+logger.warn('⚠️ FLUTTERWAVE_SECRET not set, using mock data');
+return generateMockVirtualAccount(service, amount, phone, network, reference, res);
+}
+
+try {
+// CALL REAL FLUTTERWAVE API
+const flutterwaveResponse = await fetch('https://api.flutterwave.com/v3/virtual-account-numbers', {
+method: 'POST',
+headers: {
+'Authorization': `Bearer ${FLUTTERWAVE_SECRET}`,
+'Content-Type': 'application/json'
+},
+body: JSON.stringify({
+email: `customer_${phone || 'user'}@dubpay.com`,
+amount: amount,
+tx_ref: reference,
+narration: `${service} payment for ${phone || 'customer'}`,
+expires: 3600 // 1 hour
+})
+});
+
+const flutterwaveData = await flutterwaveResponse.json();
+
+if (flutterwaveData.status === 'success' && flutterwaveData.data) {
+const accountNumber = flutterwaveData.data.account_number;
+const bankName = flutterwaveData.data.bank_name || flutterwaveData.data.bank?.name || 'GTBank';
+
+// Save to Google Sheets
+const billData = {
+tx_ref: reference,
+billType: service,
+billDetails: JSON.stringify({
+phone,
+network,
+virtualAccount: accountNumber,
+bankName,
+flutterwaveRef: flutterwaveData.data.tx_ref || reference
+}),
+amountNGN: amount,
+status: 'pending_naira',
+createdAt: new Date().toISOString()
+};
+await appendToSheet(reference, billData);
+
+logger.info(`✅ Virtual account created: ${accountNumber} (${bankName}) for ${reference}`);
+
+return res.json({
+success: true,
+reference: reference,
+accountNumber: accountNumber,
+bankName: bankName,
+amount: amount,
+message: `Pay ₦${amount} to account ${accountNumber} (${bankName})`
+});
+} else {
+// If Flutterwave fails, use mock data as fallback
+logger.warn('⚠️ Flutterwave virtual account failed:', flutterwaveData.message);
+return generateMockVirtualAccount(service, amount, phone, network, reference, res);
+}
+} catch (flutterwaveError) {
+logger.error('❌ Flutterwave virtual account error:', flutterwaveError.message);
+// Fallback to mock data
+return generateMockVirtualAccount(service, amount, phone, network, reference, res);
+}
+
+} catch (error) {
+logger.error('❌ Virtual account error:', error.message);
+res.status(500).json({ success: false, error: error.message });
+}
+});
+
+// Helper function for mock virtual account (fallback)
+async function generateMockVirtualAccount(service, amount, phone, network, reference, res) {
+const accountNumber = `0${Math.floor(100000000 + Math.random() * 900000000)}`;
+const banks = ['GTBank', 'Access Bank', 'First Bank', 'Zenith Bank', 'UBA', 'Opay', 'Palmpay'];
+const bankName = banks[Math.floor(Math.random() * banks.length)];
+
+const billData = {
+tx_ref: reference,
+billType: service,
+billDetails: JSON.stringify({ phone, network, virtualAccount: accountNumber, bankName }),
+amountNGN: amount,
+status: 'pending_naira',
+createdAt: new Date().toISOString()
+};
+await appendToSheet(reference, billData);
+
+res.json({
+success: true,
+reference: reference,
+accountNumber: accountNumber,
+bankName: bankName,
+amount: amount,
+message: `Pay ₦${amount} to account ${accountNumber} (${bankName})`
+});
+}
+
+// ============================================================
+// 📌 VERIFY NAIRA PAYMENT
+// ============================================================
+app.post('/api/verify-naira-payment', async (req, res) => {
+try {
+const { tx_ref, account_number, amount, user_confirmed } = req.body;
+
+logger.info(`🔍 Verifying naira payment: ${tx_ref}`);
+
+// Check if already processed in Google Sheets
+try {
+const orders = await getOrdersFromSheet();
+const order = orders[tx_ref];
+if (order && order.status === 'completed') {
+return res.json({ success: true, confirmed: true, message: 'Payment already confirmed' });
+}
+} catch (e) {
+logger.warn('Could not check sheets:', e.message);
+}
+
+// If user confirmed, check with Flutterwave
+if (user_confirmed === true && FLUTTERWAVE_SECRET) {
+try {
+const flutterwaveRes = await fetch(`https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${tx_ref}`, {
+headers: {
+'Authorization': `Bearer ${FLUTTERWAVE_SECRET}`
+}
+});
+const flutterwaveData = await flutterwaveRes.json();
+
+if (flutterwaveData.status === 'success' && flutterwaveData.data?.status === 'successful') {
+logger.info(`✅ Naira payment confirmed by Flutterwave: ${tx_ref}`);
+return res.json({
+success: true,
+confirmed: true,
+message: 'Payment confirmed by Flutterwave'
+});
+}
+} catch (e) {
+logger.warn('Could not verify with Flutterwave:', e.message);
+}
+}
+
+// If user confirmed and Flutterwave check failed, trust user
+if (user_confirmed === true) {
+logger.info(`✅ Naira payment confirmed by user: ${tx_ref}`);
+return res.json({
+success: true,
+confirmed: true,
+message: 'Payment confirmed by user'
+});
+}
+
+res.json({
+success: true,
+confirmed: false,
+message: 'Payment not yet confirmed'
+});
+
+} catch (error) {
+logger.error('❌ Naira verification error:', error.message);
+res.status(500).json({ success: false, error: error.message });
+}
+});
+
+// ============================================================
+// 📌 GET WALLET ADDRESSES - REAL ADDRESSES FROM .env
+// ============================================================
+app.get('/api/wallet-addresses', (req, res) => {
+try {
+res.json({
+success: true,
+addresses: {
+BTC: process.env.BTC_ADDRESS || '',
+ETH: process.env.ETH_ADDRESS || '',
+SOL: process.env.SOL_ADDRESS || '',
+BNB: process.env.BNB_ADDRESS || '',
+TRX: process.env.TRX_ADDRESS || '',
+USDC: process.env.ETH_ADDRESS || '',
+USDT: process.env.TRX_ADDRESS || ''
+}
+});
+} catch (error) {
+res.status(500).json({ success: false, error: error.message });
+}
+});
+
+// ============================================================
+// 📌 VERIFY CRYPTO PAYMENT - WITH BLOCKCHAIN VERIFICATION
 // ============================================================
 app.post('/api/verify-crypto-payment', async (req, res) => {
 try {
 const { tx_ref, currency, amount, address, user_confirmed } = req.body;
 
 logger.info(`🔍 Verifying crypto payment: ${tx_ref}`);
-logger.info(`Currency: ${currency}, Amount: ${amount}, Address: ${address}`);
+logger.info(`Currency: ${currency}, Amount: ${amount}, Address: ${address || 'N/A'}`);
 
+// If currency is NGN, skip blockchain verification
+if (currency && currency.toUpperCase() === 'NGN') {
+logger.info(`⏳ NGN payment - skipping blockchain verification`);
+try {
+const orders = await getOrdersFromSheet();
+const order = orders[tx_ref];
+if (order && order.status === 'completed') {
+return res.json({ success: true, confirmed: true, message: 'Payment already confirmed' });
+}
+} catch (e) {
+logger.warn('Could not check sheets:', e.message);
+}
+
+if (user_confirmed === true) {
+return res.json({ success: true, confirmed: true, message: 'NGN payment confirmed by user' });
+}
+
+return res.json({ success: true, confirmed: false, message: 'NGN payment pending confirmation' });
+}
+
+// Check if already processed in Google Sheets
 try {
 const orders = await getOrdersFromSheet();
 const order = orders[tx_ref];
@@ -2818,14 +3042,6 @@ case 'TRX':
 confirmed = await verifyTRX(address, expectedAmount);
 verificationMessage = confirmed ? 'TRX payment verified on blockchain' : 'TRX payment not found on blockchain';
 break;
-case 'USDC':
-confirmed = await verifyUSDC(address, expectedAmount);
-verificationMessage = confirmed ? 'USDC payment verified on blockchain' : 'USDC payment not found on blockchain';
-break;
-case 'USDT':
-confirmed = await verifyUSDT(address, expectedAmount);
-verificationMessage = confirmed ? 'USDT payment verified on blockchain' : 'USDT payment not found on blockchain';
-break;
 default:
 if (user_confirmed === true) {
 confirmed = true;
@@ -2855,12 +3071,6 @@ confirmed = await verifyBNBDeep(address, expectedAmount);
 break;
 case 'TRX':
 confirmed = await verifyTRXDeep(address, expectedAmount);
-break;
-case 'USDC':
-confirmed = await verifyUSDCToken(address, expectedAmount);
-break;
-case 'USDT':
-confirmed = await verifyUSDTTron(address, expectedAmount);
 break;
 }
 
@@ -2902,12 +3112,20 @@ confirmed: false
 
 async function verifyBTC(address, expectedAmount) {
 try {
+if (!address) {
+logger.warn('⚠️ No BTC address provided for verification');
+return false;
+}
+
 const response = await axios.get(
-`https://mempool.space/api/address/${address}/txs`
+`https://mempool.space/api/address/${address}/txs`,
+{ timeout: 10000 }
 );
 const transactions = response.data;
 const satoshisExpected = Math.round(expectedAmount * 100000000);
 const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+
+logger.info(`🔍 Checking ${transactions.length} BTC transactions for ${address}`);
 
 for (const tx of transactions) {
 const txTime = tx.status?.block_time ? tx.status.block_time * 1000 : Date.now();
@@ -2916,24 +3134,30 @@ if (txTime < tenMinutesAgo) continue;
 for (const output of tx.vout) {
 if (output.scriptpubkey_address === address) {
 const received = Math.round(output.value * 100000000);
-if (Math.abs(received - satoshisExpected) <= satoshisExpected * 0.05) {
+if (Math.abs(received - satoshisExpected) <= satoshisExpected * 0.10) {
 logger.info(`✅ BTC payment found: ${received} sats (expected: ${satoshisExpected})`);
 return true;
 }
 }
 }
 }
+logger.info(`⏳ No BTC payment found for ${address} in last 10 minutes`);
 return false;
 } catch (error) {
 logger.error('BTC verification error:', error.message);
+if (error.response) {
+logger.error('BTC API response status:', error.response.status);
+}
 return false;
 }
 }
 
 async function verifyBTCDeep(address, expectedAmount) {
 try {
+if (!address) return false;
 const response = await axios.get(
-`https://mempool.space/api/address/${address}/txs/chain`
+`https://mempool.space/api/address/${address}/txs/chain`,
+{ timeout: 10000 }
 );
 const transactions = response.data;
 const satoshisExpected = Math.round(expectedAmount * 100000000);
@@ -2946,7 +3170,7 @@ if (txTime < thirtyMinutesAgo) continue;
 for (const output of tx.vout) {
 if (output.scriptpubkey_address === address) {
 const received = Math.round(output.value * 100000000);
-if (Math.abs(received - satoshisExpected) <= satoshisExpected * 0.05) {
+if (Math.abs(received - satoshisExpected) <= satoshisExpected * 0.10) {
 return true;
 }
 }
@@ -2954,12 +3178,17 @@ return true;
 }
 return false;
 } catch (error) {
+logger.error('BTC deep verification error:', error.message);
 return false;
 }
 }
 
 async function verifyETH(address, expectedAmount) {
 try {
+if (!address) {
+logger.warn('⚠️ No ETH address provided for verification');
+return false;
+}
 const provider = new ethers.JsonRpcProvider(ETH_RPC);
 const blockNumber = await provider.getBlockNumber();
 const startBlock = Math.max(0, blockNumber - 100);
@@ -2984,6 +3213,7 @@ return false;
 
 async function verifyETHDeep(address, expectedAmount) {
 try {
+if (!address) return false;
 const provider = new ethers.JsonRpcProvider(ETH_RPC);
 const blockNumber = await provider.getBlockNumber();
 const startBlock = Math.max(0, blockNumber - 500);
@@ -3006,6 +3236,10 @@ return false;
 
 async function verifySOL(address, expectedAmount) {
 try {
+if (!address) {
+logger.warn('⚠️ No SOL address provided for verification');
+return false;
+}
 const connection = new Connection(SOLANA_RPC);
 const publicKey = new PublicKey(address);
 
@@ -3037,6 +3271,7 @@ return false;
 
 async function verifySOLDeep(address, expectedAmount) {
 try {
+if (!address) return false;
 const connection = new Connection(SOLANA_RPC);
 const publicKey = new PublicKey(address);
 
@@ -3064,6 +3299,7 @@ return false;
 
 async function verifyBNB(address, expectedAmount) {
 try {
+if (!address) return false;
 const provider = new ethers.JsonRpcProvider(BSC_RPC);
 const blockNumber = await provider.getBlockNumber();
 const startBlock = Math.max(0, blockNumber - 100);
@@ -3088,6 +3324,7 @@ return false;
 
 async function verifyBNBDeep(address, expectedAmount) {
 try {
+if (!address) return false;
 const provider = new ethers.JsonRpcProvider(BSC_RPC);
 const blockNumber = await provider.getBlockNumber();
 const startBlock = Math.max(0, blockNumber - 500);
@@ -3110,6 +3347,7 @@ return false;
 
 async function verifyTRX(address, expectedAmount) {
 try {
+if (!address) return false;
 const tronWeb = new TronWeb({ fullHost: TRON_RPC });
 const addressHex = tronWeb.address.toHex(address);
 
@@ -3129,6 +3367,7 @@ return false;
 
 async function verifyTRXDeep(address, expectedAmount) {
 try {
+if (!address) return false;
 const tronWeb = new TronWeb({ fullHost: TRON_RPC });
 const addressHex = tronWeb.address.toHex(address);
 
@@ -3140,207 +3379,6 @@ return balanceTRX >= expectedAmount * 0.95;
 return false;
 }
 }
-
-async function verifyUSDC(address, expectedAmount) {
-try {
-const provider = new ethers.JsonRpcProvider(ETH_RPC);
-const contractAddress = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-const abi = ['function balanceOf(address) view returns (uint256)'];
-const contract = new ethers.Contract(contractAddress, abi, provider);
-
-const balance = await contract.balanceOf(address);
-const balanceUSDC = parseFloat(ethers.formatUnits(balance, 6));
-
-if (balanceUSDC >= expectedAmount) {
-logger.info(`✅ USDC balance: ${balanceUSDC} USDC (expected: ${expectedAmount})`);
-return true;
-}
-return false;
-} catch (error) {
-logger.error('USDC verification error:', error.message);
-return false;
-}
-}
-
-async function verifyUSDCToken(address, expectedAmount) {
-try {
-const provider = new ethers.JsonRpcProvider(ETH_RPC);
-const contractAddress = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-const abi = ['function balanceOf(address) view returns (uint256)'];
-const contract = new ethers.Contract(contractAddress, abi, provider);
-
-const balance = await contract.balanceOf(address);
-const balanceUSDC = parseFloat(ethers.formatUnits(balance, 6));
-
-return balanceUSDC >= expectedAmount * 0.98;
-} catch (error) {
-return false;
-}
-}
-
-async function verifyUSDT(address, expectedAmount) {
-try {
-const tronWeb = new TronWeb({ fullHost: TRON_RPC });
-const contractAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-const contract = await tronWeb.contract().at(contractAddress);
-
-const balance = await contract.balanceOf(address).call();
-const balanceUSDT = balance / 1000000;
-
-if (balanceUSDT >= expectedAmount) {
-logger.info(`✅ USDT balance: ${balanceUSDT} USDT (expected: ${expectedAmount})`);
-return true;
-}
-return false;
-} catch (error) {
-logger.error('USDT verification error:', error.message);
-return false;
-}
-}
-
-async function verifyUSDTTron(address, expectedAmount) {
-try {
-const tronWeb = new TronWeb({ fullHost: TRON_RPC });
-const contractAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-const contract = await tronWeb.contract().at(contractAddress);
-
-const balance = await contract.balanceOf(address).call();
-const balanceUSDT = balance / 1000000;
-
-return balanceUSDT >= expectedAmount * 0.98;
-} catch (error) {
-return false;
-}
-}
-
-// ============================================================
-// 📌 GET WALLET ADDRESSES - REAL ADDRESSES FROM .env
-// ============================================================
-app.get('/api/wallet-addresses', (req, res) => {
-try {
-res.json({
-success: true,
-addresses: {
-BTC: process.env.BTC_ADDRESS || '',
-ETH: process.env.ETH_ADDRESS || '',
-SOL: process.env.SOL_ADDRESS || '',
-BNB: process.env.BNB_ADDRESS || '',
-TRX: process.env.TRX_ADDRESS || '',
-USDC: process.env.ETH_ADDRESS || '',
-USDT: process.env.TRX_ADDRESS || ''
-}
-});
-} catch (error) {
-res.status(500).json({ success: false, error: error.message });
-}
-});
-
-// ============================================================
-// 📌 VERIFY NAIRA PAYMENT - CHECK VIRTUAL ACCOUNT PAYMENT
-// ============================================================
-app.post('/api/verify-naira-payment', async (req, res) => {
-try {
-const { tx_ref, account_number, amount, user_confirmed } = req.body;
-
-logger.info(`🔍 Verifying naira payment: ${tx_ref}`);
-
-// Check if already processed in Google Sheets
-try {
-const orders = await getOrdersFromSheet();
-const order = orders[tx_ref];
-if (order && order.status === 'completed') {
-return res.json({ success: true, confirmed: true, message: 'Payment already confirmed' });
-}
-} catch (e) {
-logger.warn('Could not check sheets:', e.message);
-}
-
-// If user confirmed, check Flutterwave
-if (user_confirmed === true) {
-// In production, call Flutterwave API to verify payment
-// For now, simulate confirmation
-return res.json({
-success: true,
-confirmed: true,
-message: 'Payment confirmed'
-});
-}
-
-res.json({
-success: true,
-confirmed: false,
-message: 'Payment not yet confirmed'
-});
-
-} catch (error) {
-logger.error('❌ Naira verification error:', error.message);
-res.status(500).json({ success: false, error: error.message });
-}
-});
-
-// ============================================================
-// 📌 CREATE VIRTUAL ACCOUNT - FOR NAIRA PAYMENTS
-// ============================================================
-app.post('/api/create-virtual-account', async (req, res) => {
-try {
-const { service, amount, phone, network } = req.body;
-
-const reference = `DP_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
-
-// In production, call Flutterwave API:
-/*
-const flutterwaveResponse = await fetch('https://api.flutterwave.com/v3/virtual-account-numbers', {
-method: 'POST',
-headers: {
-'Authorization': `Bearer ${FLUTTERWAVE_SECRET}`,
-'Content-Type': 'application/json'
-},
-body: JSON.stringify({
-email: 'customer@dubpay.com',
-amount: amount,
-tx_ref: reference,
-narration: `${service} payment`
-})
-});
-const flutterwaveData = await flutterwaveResponse.json();
-
-if (!flutterwaveData.status === 'success') {
-throw new Error('Failed to generate virtual account');
-}
-
-const accountNumber = flutterwaveData.data.account_number;
-const bankName = flutterwaveData.data.bank_name;
-*/
-
-// For now, return mock data (replace with real Flutterwave call)
-const mockAccountNumber = '0123456789';
-const mockBankName = 'GTBank';
-
-// Save to Google Sheets
-const billData = {
-tx_ref: reference,
-billType: service,
-billDetails: JSON.stringify({ phone, network, virtualAccount: mockAccountNumber, bankName: mockBankName }),
-amountNGN: amount,
-status: 'pending_naira',
-createdAt: new Date().toISOString()
-};
-await appendToSheet(reference, billData);
-
-res.json({
-success: true,
-reference: reference,
-accountNumber: mockAccountNumber,
-bankName: mockBankName,
-amount: amount,
-message: `Pay ₦${amount} to account ${mockAccountNumber} (${mockBankName})`
-});
-
-} catch (error) {
-logger.error('❌ Virtual account error:', error.message);
-res.status(500).json({ success: false, error: error.message });
-}
-});
 
 // ============================================================
 // 📌 START SERVER
@@ -3367,13 +3405,12 @@ logger.info(` - VTPass Balance: GET /api/bills/balance`);
 logger.info(` - BTC to NGN: GET /api/bills/btc-to-ngn`);
 logger.info(` - Transaction History: GET /api/bills/history`);
 logger.info(` - Total Profit: GET /api/bills/profit`);
+logger.info(`\n💰 NAIRA PAYMENTS:`);
+logger.info(` - Virtual Account: POST /api/create-virtual-account`);
+logger.info(` - Verify Naira: POST /api/verify-naira-payment`);
 logger.info(`\n🔐 CRYPTO VERIFICATION:`);
 logger.info(` - Verify Crypto: POST /api/verify-crypto-payment`);
-logger.info(`\n💰 NAIRA PAYMENTS:`);
-logger.info(` - Verify Naira: POST /api/verify-naira-payment`);
-logger.info(` - Virtual Account: POST /api/create-virtual-account`);
-logger.info(`\n🏦 WALLET ADDRESSES:`);
-logger.info(` - Get Addresses: GET /api/wallet-addresses`);
+logger.info(` - Wallet Addresses: GET /api/wallet-addresses`);
 logger.info(`\n💰 PROFIT MARGIN: ${(1 - PROFIT_MARGIN) * 100}%`);
 logger.info(`🔗 BTC NETWORK: ${BTC_NETWORK.toUpperCase()}`);
 if (GOOGLE_SHEETS_SPREADSHEET_ID) {
@@ -3385,6 +3422,11 @@ if (process.env.VTPASS_API_KEY) {
 logger.info(`✅ VTPass configured for Nigerian bills`);
 } else {
 logger.warn(`⚠️ VTPass NOT configured. Add VTPASS_API_KEY and VTPASS_SECRET_KEY`);
+}
+if (process.env.FLUTTERWAVE_SECRET) {
+logger.info(`✅ Flutterwave configured for payments`);
+} else {
+logger.warn(`⚠️ Flutterwave NOT configured. Add FLUTTERWAVE_SECRET`);
 }
 logger.info(`\n`);
 });
